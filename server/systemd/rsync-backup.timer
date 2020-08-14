@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup of remote systems timer
+After=network.target local-fs.target
+
+[Timer]
+OnCalendar=daily
+AccuracySec=1m
+RandomizedDelaySec=2h
+
+[Install]
+WantedBy=timers.target

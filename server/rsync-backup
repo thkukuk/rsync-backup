@@ -1,0 +1,242 @@
+#!/bin/bash
+#
+# Copyright (C) 2020 Thorsten Kukuk <kukuk@thkukuk.de>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+export LANG=C.UTF-8
+
+ERR=0
+
+log_error()
+{
+    echo "$@" >&2
+    logger --priority user.err "$@"
+}
+
+log_info()
+{
+    echo "$@"
+    logger "$@"
+}
+
+init_client() {
+    # Create subvolume and configure snapper for new client
+
+    SERVER=$1
+
+    log_info "Initialize backup snapshot for ${SERVER}"
+    log_info "Create btrfs subvolume..."
+    if ! btrfs subvol create "${BACKUPDIR}/${SERVER}"; then
+        log_error "ERROR: Creating btrfs subvolume ${BACKUPDIR}/${SERVER} failed!"
+	exit 1
+    fi
+    log_info "Create snapper config..."
+    if ! snapper -c backup_"${SERVER}" create-config "${BACKUPDIR}/${SERVER}"; then
+	log_error "ERROR: Creating configurtion for snapper failed!"
+	btrfs subvol delete "${BACKUPDIR}/${SERVER}"
+	exit 1
+    fi
+    if ! snapper -c backup_"${SERVER}" set-config TIMELINE_CREATE="no" TIMELINE_CLEANUP="yes" TIMELINE_LIMIT_HOURLY="24" TIMELINE_LIMIT_DAILY="14" TIMELINE_LIMIT_WEEKLY="12" TIMELINE_LIMIT_MONTHLY="24" TIMELINE_LIMIT_YEARLY="2"; then
+	log_error "WARNING: Adjusting snapper config for backup_${SERVER} failed! Please check yourself."
+    fi
+    log_info "Set quota..."
+    if ! snapper -c backup_"${SERVER}" setup-quota; then
+	log_error "WARNING: Snapper quota setup failed, please set yourself."
+    fi
+
+    log_info "Everything is prepared to backup ${SERVER}."
+    echo ""
+    log_info "Please create the ${CFG_DIR}/${SERVER}.cfg configuration file"
+    log_info "With the paths to backup."
+    echo ""
+}
+
+sync_client()
+{
+    SERVER=$1
+
+    if [ ! -e "${BACKUPDIR}/${SERVER}" ]; then
+	log_error "ERROR: Backup directory does not exist, run \"rsync-backup init ${SERVER}\""
+	ERR=1
+	return
+    fi
+
+    if [ "${SERVER}" != "localhost" ]; then
+	if ! nc -z -w 2 "${SERVER}" 22; then
+	    log_error "WARNING: ${SERVER} not reacheable, skipping."
+	    ERR=1
+	    return
+	fi
+    fi
+
+    DATE=$(date "+%Y%m%d")
+
+    if [ ! -e "${CFG_DIR}"/"${SERVER}".cfg ]; then
+	log_error "ERROR: ${CFG_DIR}/${SERVER}.cfg does not exist!"
+	ERR=1
+	return
+    fi
+
+    while read -r line; do
+	# reading configuration file line by line
+        stringarray=($line)
+	SERVER_DIR=${stringarray[0]}
+	EXTRAARGS="${stringarray[*]:1}"
+
+	log_info "Starting rsync backup from ${SERVER}:${SERVER_DIR}..."
+
+	mkdir -p "${BACKUPDIR}/${SERVER}${SERVER_DIR}"
+
+	if [ "${SERVER}" = "localhost" ]; then
+	    # Don't use ssh/remote access to backup localhost
+	    rsync -aHv --numeric-ids --delete --delete-excluded \
+		  ${RSYNC_EXTRAOPTS} ${SERVERARGS} ${EXTRAARGS} \
+		  "${SERVER_DIR}/" "${BACKUPDIR}/${SERVER}${SERVER_DIR}"
+	else
+	    rsync -aHv --numeric-ids -e ssh --delete --delete-excluded \
+		  ${RSYNC_EXTRAOPTS} ${SERVERARGS} ${EXTRAARGS} \
+		  "${BACKUP_USER}@${SERVER}:${SERVER_DIR}/" "${BACKUPDIR}/${SERVER}${SERVER_DIR}"
+	fi
+
+	# Check return value, accept 0 and 24 as good
+	if [ $? != 24 ] && [ $? != 0 ] ; then
+	    ERR=1
+	    log_error "ERROR: ${SERVER}:${SERVER_DIR} failed!"
+	fi
+
+    done < "${CFG_DIR}/${SERVER}".cfg
+
+    # Only snapshot if there was no error...
+    if [ ${ERR} -eq 0 ]; then
+	snapper -c backup_"${SERVER}" create --type single --description "${DATE}" --cleanup-algorithm timeline
+    else
+	log_error "An error happens during backup, skipping cration of a snapshot!"
+    fi
+    log_info "Finished rsync backup from ${SERVER}..."
+}
+
+sync_all() {
+    CFGS=""
+    FILES=$(/bin/ls "${CFG_DIR}"/*.cfg)
+
+    for entry in ${FILES}; do
+	host=${entry##"${CFG_DIR}/"}
+	host=${host%%.cfg}
+	CFGS="${host} ${CFGS}"
+    done
+
+    parallel --jobs ${MAX_JOBS} rsync-backup ::: "sync" ::: ${CFGS}
+}
+
+usage() {
+    echo "Syntax: rsync-backup [options] command <client> ..."
+    echo ""
+    echo "Backup remote clients with rsync and store local snapshots of it."
+    echo ""
+    echo "Commands:"
+    printf "init <client> ...\tInitialize btrfs subvolume for new backup client\n"
+    printf "sync <client> ...\tRun backup for all listed clients\n"
+    printf "sync-all\t\tRun backup in parallel for all clients\n"
+    echo ""
+    echo "Options:"
+    echo "--help, -h                 Display this help and exit"
+    echo "--version                  Display version and exit"
+}
+
+print_version() {
+    echo "rsync-backup @VERSION@"
+}
+
+#
+# Main
+#
+RUN_INIT=0
+RUN_SYNC=0
+RUN_SYNCALL=0
+
+while true; do
+    if [ $# -eq 0 ]; then
+        break
+    fi
+
+    case "$1" in
+	init)
+	    RUN_INIT=1
+	    shift
+	    ;;
+	sync)
+	    RUN_SYNC=1
+	    shift
+	    ;;
+	sync-all)
+	    RUN_SYNCALL=1
+	    shift
+	    ;;
+	-h|--help)
+            usage
+	    exit 0
+            ;;
+        --version)
+            print_version
+	    exit 0
+            ;;
+        *)
+            usage
+	    exit 1
+            ;;
+    esac
+    if [ $RUN_INIT -eq 1 ] || [ $RUN_SYNC -eq 1 ] || [ $RUN_SYNCALL -eq 1 ]; then
+	break;
+    fi
+done
+
+if [ $# -eq 0 ] && [ $RUN_SYNCALL -eq 0 ]; then
+    usage
+    exit 1
+fi
+
+# Read configuration variables
+# Default variables
+BACKUPDIR="/backup"
+CFG_DIR="/etc/rsync-backup"
+BACKUP_USER="rsync-backup"
+RSYNC_EXTRAOPTS=""
+MAX_JOBS=1
+# Overwrite with vendor specific values if exist:
+if [ -e /usr/etc/rsync-backup.conf ]; then
+  . /usr/etc/rsync-backup.conf
+fi
+# Overwrite with admin specific values if exist:
+if [ -e /etc/rsync-backup.conf ]; then
+  . /etc/rsync-backup.conf
+fi
+
+if [ $RUN_INIT -eq 1 ]; then
+    for machine in "$@"; do
+	init_client "$machine"
+    done
+fi
+
+if [ $RUN_SYNC -eq 1 ]; then
+    for machine in "$@"; do
+	sync_client "$machine"
+    done
+fi
+
+if [ $RUN_SYNCALL -eq 1 ]; then
+    sync_all
+fi
+
+exit $ERR
