@@ -14,10 +14,11 @@ The backuped data of a host will be stored in a subvolume, which contains alread
 
 ### Requirements
 
-You need a server with a disk big enough for all the backup data. Best is if
-this machine is doing nothing else and not reacheable from outside and login
-only possible via console. Thus the backups are save for virus like Emotet or
-so.
+You need a server with a disk big enough for all the backup data. The only
+supported filesytem is `btrfs`, as the snapshot functionality is required.
+Best is if this machine is doing nothing else and not reacheable from outside
+and login only possible via console. Thus the backups are save for malware
+like Emotet or similar.
 
 Install the `server/rsync-backup` script and the `server/rsync-backup.conf`
 confiuration file. Adjust the configuration file to your needs and paths on
@@ -28,7 +29,41 @@ I'm using a Raspberry Pi 4 with an external 2 TB harddisk and openSUSE MicroOS
 as host OS to backup the configuration and data of my mail server and several
 other machines.
 
-### Adding a new client to backup
+### Backup one client
+
+`rsync-backup sync <hostname>` will run a backup for the client `<hostname>`.
+`snapper -c backup_<hostname> list` will afterwards show a new backup
+including the additional size and date.
+
+
+### Backup all clients
+
+`rsync-backup sync-all` will backup all clients for which there is a
+configuration file in `/etc/rsync-backukp`. The backup is done in parallel
+according to the configuration. This command can be run daily by the
+`rsync-backup.timer` systemd-timer service.
+
+## Adding a new client to backup
+
+### Requirement and setup of client
+
+The backup server needs access to the backup client for rsync via ssh. A
+special, configureable account `rsync-backup` is used for this.
+
+The authorized_keys file template
+(`/usr/share/rsync-backup/.ssh/authorized_keys.template`) needs to be
+installed as `/var/lib/rsync-backup/.ssh/authorized_keys` and the public ssh
+key of root from the server inserted. Verify that this works by running
+```ssh -l rsync-backup <hostname>``` from the server. The rsync-backup account
+is protected by a script, which makes sure that only the rsync command is
+allowed.
+This script is using sudo to be able to read all files. The rule for this is
+installed as `/etc/sudoers.d/rsync-backup-sudoers`. Verify that this works
+non-interactive by running ```sudo /usr/bin/rsync```. The first time you need
+to accept most likely the lecture of sudo. You can instead create the file
+`/var/lib/sudo/lectured/rsync-backup`.
+
+### Adding backup client on the server
 
 `<hostname>` is the name under which the client is reachable. If the backup
 server itself should be backuped, the name is `localhost`. In this case, no
@@ -56,17 +91,3 @@ An example:
 # Backup home directories, ignore .cache directories
 /home         --exclude=.cache
 ```
-
-### Backup one client
-
-`rsync-backup sync <hostname>` will run a backup for the client `<hostname>`.
-`snapper -c backup_<hostname> list` will afterwards show a new backup
-including the additional size and date.
-
-
-### Backup all clients
-
-`rsync-backup sync-all` will backup all clients for which there is a
-configuration file in `/etc/rsync-backukp`. The backup is done in parallel
-according to the configuration. This command can be run daily by the
-`rsync-backup.timer` systemd-timer service.
