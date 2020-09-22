@@ -91,3 +91,10 @@ An example:
 # Backup home directories, ignore .cache directories
 /home         --exclude=.cache
 ```
+
+## Restoring data
+
+`snapper -c backup_<hostname> list` will list all available backups from a
+specific client. Choose the snapshot number from which data should be
+restored. The backup can be found then in
+`/backup/<hostname>/.snapshots/<snapshot number>/snapshot/`.
