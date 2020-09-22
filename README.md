@@ -60,7 +60,7 @@ allowed.
 This script is using sudo to be able to read all files. The rule for this is
 installed as `/etc/sudoers.d/rsync-backup-sudoers`. Verify that this works
 non-interactive by running ```sudo /usr/bin/rsync```. The first time you need
-to accept most likely the lecture of sudo. You can instead create the file
+to accept most likely the lecture of sudo. You can instead also create a file
 `/var/lib/sudo/lectured/rsync-backup`.
 
 ### Adding backup client on the server
