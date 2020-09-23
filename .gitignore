@@ -51,4 +51,5 @@ Makefile
 #Misc
 server/systemd/rsync-backup.service
 server/rsync-backup.1
+server/rsync-backup
 rsync-backup-*.tar.*

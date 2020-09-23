@@ -25,4 +25,5 @@ AC_PROG_LN_S
 
 AC_OUTPUT([Makefile client/Makefile server/Makefile \
 	   server/systemd/rsync-backup.service \
+	   server/rsync-backup \
 	   client/authorized_keys.template])

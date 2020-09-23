@@ -15,7 +15,7 @@ endif
 config_DATA = rsync-backup.conf
 
 EXTRA_DIST = $(DATA) $(SCRIPTS) $(MANS) rsync-backup.1.md \
-	systemd/rsync-backup.service.in
+	systemd/rsync-backup.service.in rsync-backup.in
 
 %.1: %.1.md
 	pandoc -s -f markdown -t man $< --output $@
