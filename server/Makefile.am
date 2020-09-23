@@ -4,6 +4,8 @@ systemdsystemunit_DATA = systemd/rsync-backup.timer \
 
 sbin_SCRIPTS = rsync-backup
 
+man_MANS = rsync-backup.1
+
 if HAVE_VENDORDIR
 configdir=@vendordir@
 else
@@ -12,4 +14,8 @@ endif
 
 config_DATA = rsync-backup.conf
 
-EXTRA_DIST = $(DATA) $(SCRIPTS) systemd/rsync-backup.service.in
+EXTRA_DIST = $(DATA) $(SCRIPTS) $(MANS) rsync-backup.1.md \
+	systemd/rsync-backup.service.in
+
+%.1: %.1.md
+	pandoc -s -f markdown -t man $< --output $@
