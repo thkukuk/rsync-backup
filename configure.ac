@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(rsync-backup, 0.1)
+AC_INIT(rsync-backup, 1.0)
 AM_INIT_AUTOMAKE
 AC_PREFIX_DEFAULT(/usr)
 
