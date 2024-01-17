@@ -143,6 +143,11 @@ sync_all() {
     done
 
     parallel --jobs "${MAX_JOBS}" rsync-backup ::: "sync" ::: ${CFGS}
+    RETVAL=$?
+    if [ ${RETVAL} -ne 0 ]; then
+	log_error "${RETVAL} jobs did fail!"
+	ERR=1;
+    fi
 }
 
 usage() {
